@@ -109,6 +109,7 @@ export const learningRouter = createTRPCRouter({
           mode: true,
           answerLog: true,
           isComplete: true,
+          timeSpent: true,
           createdAt: true,
           updatedAt: true,
           commit: true,
@@ -135,6 +136,7 @@ export const learningRouter = createTRPCRouter({
         queue: queueSchema.parse(session.queue),
         answerLog: answerLogSchema.parse(session.answerLog),
         isComplete: session.isComplete,
+        timeSpent: session.timeSpent,
         mode: session.mode as z.infer<typeof modes>,
         ask,
         commit: session.commit,
@@ -149,6 +151,7 @@ export const learningRouter = createTRPCRouter({
         answerLog: answerLogSchema,
         queue: queueSchema,
         isComplete: z.boolean(),
+        timeSpent: z.number().int().min(0),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -174,6 +177,7 @@ export const learningRouter = createTRPCRouter({
           answerLog: input.answerLog,
           queue: input.queue,
           isComplete: input.isComplete,
+          timeSpent: input.timeSpent,
         },
       });
 
@@ -188,6 +192,31 @@ export const learningRouter = createTRPCRouter({
           listId: session.listId,
           totalAnswers: input.answerLog.length,
           correctAnswers: correctCount,
+        });
+      }
+    }),
+  updateSessionTime: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string(),
+        timeSpent: z.number().int().min(0),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const result = await prisma.learnSession.updateMany({
+        where: {
+          id: input.sessionId,
+          userId: ctx.user.id,
+        },
+        data: {
+          timeSpent: input.timeSpent,
+        },
+      });
+
+      if (result.count === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
         });
       }
     }),

@@ -36,6 +36,7 @@ export interface LearnStoreInitData {
   queue: LearnQueue
   answerLog?: AnswerLogEntry[]
   isComplete?: boolean
+  timeSpent?: number
 }
 
 export interface LearnStoreState {
@@ -44,6 +45,8 @@ export interface LearnStoreState {
   answerLog: AnswerLogEntry[]
   isComplete: boolean
   feedback: FeedbackState | null
+  elapsedMs: number
+  timerStartedAt: number | null
 
   submitAnswer: (answer: string) => boolean
   onCorrectAnswer: (questionId: string, answer: string) => void
@@ -52,6 +55,9 @@ export interface LearnStoreState {
   getProgress: () => { completed: number; total: number; percentage: number }
   dismissFeedback: () => void
   considerRight: () => void
+  pauseTimer: () => void
+  resumeTimer: () => void
+  getElapsedSeconds: () => number
 }
 
 
@@ -88,13 +94,16 @@ const expandAnswerSyntax = (answer: string) => [
 
 export const createLearnStore = (initData: LearnStoreInitData) => {
   const initialAnswerLog = initData.answerLog ?? []
+  const initialIsComplete = initData.isComplete ?? initData.queue.length === 0
 
   return createStore<LearnStoreState>((set, get) => ({
     listId: initData.listId,
     queue: initData.queue,
     answerLog: initialAnswerLog,
-    isComplete: initData.isComplete ?? initData.queue.length === 0,
+    isComplete: initialIsComplete,
     feedback: null,
+    elapsedMs: (initData.timeSpent ?? 0) * 1000,
+    timerStartedAt: initialIsComplete ? null : Date.now(),
     getCurrentQuestion: () => {
       const { queue } = get()
       return queue[0]
@@ -166,6 +175,16 @@ export const createLearnStore = (initData: LearnStoreInitData) => {
         ]
         const isComplete = newQueue.length === 0
 
+        if (isComplete && state.timerStartedAt !== null) {
+          return {
+            queue: newQueue,
+            answerLog: newAnswerLog,
+            isComplete,
+            elapsedMs: state.elapsedMs + (Date.now() - state.timerStartedAt),
+            timerStartedAt: null,
+          }
+        }
+
         return {
           queue: newQueue,
           answerLog: newAnswerLog,
@@ -203,6 +222,30 @@ export const createLearnStore = (initData: LearnStoreInitData) => {
           answerLog: newAnswerLog,
         }
       })
+    },
+
+    pauseTimer: () => {
+      const { timerStartedAt, elapsedMs } = get()
+      if (timerStartedAt === null) return
+
+      set({
+        elapsedMs: elapsedMs + (Date.now() - timerStartedAt),
+        timerStartedAt: null,
+      })
+    },
+
+    resumeTimer: () => {
+      const { timerStartedAt, isComplete } = get()
+      if (timerStartedAt !== null || isComplete) return
+
+      set({ timerStartedAt: Date.now() })
+    },
+
+    getElapsedSeconds: () => {
+      const { timerStartedAt, elapsedMs } = get()
+      const runningMs = timerStartedAt === null ? 0 : Date.now() - timerStartedAt
+
+      return Math.floor((elapsedMs + runningMs) / 1000)
     },
 
     getProgress: () => {

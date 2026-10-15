@@ -21,13 +21,13 @@ import { appRouter } from "~/server/main";
 import { useLoaderData, useNavigate, useRouteLoaderData, useLocation, type ShouldRevalidateFunctionArgs } from "react-router";
 import { LearnStoreProvider, useLearnStore } from "./store";
 import { Input, Button } from "@polarnl/polarui-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 
 import { useMutation } from "@tanstack/react-query";
 import { useTRPC } from "~/server/react";
 import { toast } from "sonner";
-import { generateHint } from "~/lib/learn";
+import { formatDuration, generateHint } from "~/lib/learn";
 import { BookOpenCheck, MoveLeft, X, Check, XCircle, CircleCheck, CircleX, Settings, Save, Loader2, CircleAlert, TriangleAlert } from "lucide-react";
 import { Progress } from "~/components/ui/progress";
 import i18n, { t } from "~/i18n";
@@ -137,6 +137,7 @@ export default function LearnPage() {
           queue: session.queue,
           answerLog: session.answerLog,
           isComplete: session.isComplete,
+          timeSpent: session.timeSpent,
         }}
       >
         <TopBar theme={theme} session={session} />
@@ -215,6 +216,7 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
         <Progress value={progress.percentage} className="h-2" />
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        <SessionTimer sessionId={session.id} theme={theme} />
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           if (open) {
             setSelectedMode(session.mode ?? "learn")
@@ -223,8 +225,8 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
           setDialogOpen(open)
         }}>
           <DialogTrigger asChild>
-            <div className="px-1 py-1 bg-neutral-300 dark:bg-neutral-700 rounded-full hover:bg-neutral-400 hover:dark:bg-neutral-600 cursor-pointer transition-all">
-              <Settings />
+            <div className="p-1.25 bg-neutral-300 dark:bg-neutral-700 rounded-full hover:bg-neutral-400 hover:dark:bg-neutral-600 cursor-pointer transition-all">
+              <Settings className="h-5.5 w-5.5" />
             </div>
           </DialogTrigger>
           <DialogContent>
@@ -298,6 +300,79 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
   )
 }
 
+const TIME_SAVE_INTERVAL_MS = 30_000
+
+function SessionTimer({ sessionId, theme }: { sessionId: string; theme: "light" | "dark" }) {
+  const rpc = useTRPC()
+  const getElapsedSeconds = useLearnStore((state) => state.getElapsedSeconds)
+  const pauseTimer = useLearnStore((state) => state.pauseTimer)
+  const resumeTimer = useLearnStore((state) => state.resumeTimer)
+  const isRunning = useLearnStore((state) => state.timerStartedAt !== null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => getElapsedSeconds())
+  const lastSavedSecondsRef = useRef(elapsedSeconds)
+  const { mutate: saveTime } = useMutation({
+    ...rpc.learning.updateSessionTime.mutationOptions(),
+  })
+
+  const saveElapsedTime = useCallback(() => {
+    const seconds = getElapsedSeconds()
+    if (seconds === lastSavedSecondsRef.current) return
+
+    lastSavedSecondsRef.current = seconds
+    saveTime({ sessionId, timeSpent: seconds })
+  }, [getElapsedSeconds, saveTime, sessionId])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        pauseTimer()
+        saveElapsedTime()
+      } else {
+        resumeTimer()
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      saveElapsedTime()
+    }
+  }, [pauseTimer, resumeTimer, saveElapsedTime])
+
+  useEffect(() => {
+    if (!isRunning) return
+
+    const interval = window.setInterval(saveElapsedTime, TIME_SAVE_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [isRunning, saveElapsedTime])
+
+  useEffect(() => {
+    setElapsedSeconds(getElapsedSeconds())
+    if (!isRunning) return
+
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(getElapsedSeconds())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [getElapsedSeconds, isRunning])
+
+  return (
+    <div
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1 ${theme === "dark" ? "bg-neutral-700 text-neutral-200" : "bg-neutral-200 text-neutral-700"}`}
+      title={t("learn.session.timeSpent")}
+    >
+      <span className="text-sm font-medium tabular-nums" suppressHydrationWarning>{formatDuration(elapsedSeconds)}</span>
+    </div>
+  )
+}
+
 function LearnTool({ sessionId, theme }: { sessionId: string; theme: "light" | "dark" }) {
   const t = i18n.t
   const rpc = useTRPC()
@@ -308,7 +383,7 @@ function LearnTool({ sessionId, theme }: { sessionId: string; theme: "light" | "
       void navigate('/app')
     },
   })
-  const { queue, answerLog, isComplete, getCurrentQuestion, submitAnswer, feedback, dismissFeedback, considerRight, listId } = useLearnStore()
+  const { queue, answerLog, isComplete, getCurrentQuestion, submitAnswer, feedback, dismissFeedback, considerRight, listId, getElapsedSeconds } = useLearnStore()
   const isFeedbackVisible = feedback?.isVisible ?? false
   const suppressOverlayEnterRef = useRef(false)
 
@@ -362,8 +437,9 @@ function LearnTool({ sessionId, theme }: { sessionId: string; theme: "light" | "
       answerLog,
       queue,
       isComplete,
+      timeSpent: getElapsedSeconds(),
     })
-  }, [answerLog, isComplete, queue, sessionId, updateSessionMutation])
+  }, [answerLog, getElapsedSeconds, isComplete, queue, sessionId, updateSessionMutation])
 
   useEffect(() => {
     if (!isFeedbackVisible) {

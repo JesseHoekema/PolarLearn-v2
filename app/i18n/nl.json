@@ -57,6 +57,7 @@
       "considerRight": "Goed rekenen",
       "backToList": "Terug naar lijst",
       "viewResults": "Resultaten bekijken",
+      "timeSpent": "Tijd bezig met deze sessie",
       "stale": {
         "title": "Deze sessie is verouderd",
         "description": "De lijst die je aan het leren bent is bijgewerkt sinds je deze sessie bent begonnen. We raden aan om een nieuwe sessie te starten zodat je de nieuwste versie van de lijst leert.",
