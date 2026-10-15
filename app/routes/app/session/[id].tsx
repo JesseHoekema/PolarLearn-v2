@@ -138,6 +138,7 @@ export default function LearnPage() {
           answerLog: session.answerLog,
           isComplete: session.isComplete,
           timeSpent: session.timeSpent,
+          strict: session.strict,
         }}
       >
         <TopBar theme={theme} session={session} />
@@ -155,12 +156,13 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
   const navigate = useNavigate()
   const location = useLocation()
   const store = useLearnStore()
-  const { answerLog, getProgress } = store
+  const { answerLog, getProgress, strict, setStrict } = store
   const progress = getProgress()
   const rpc = useTRPC()
 
   const [selectedMode, setSelectedMode] = useState<string>(session.mode ?? "learn")
   const [selectedAsk, setSelectedAsk] = useState<string>(session.ask ?? "q")
+  const [selectedStrict, setSelectedStrict] = useState(strict ? "strict" : "lenient")
   const [dialogOpen, setDialogOpen] = useState(false)
 
   useEffect(() => {
@@ -184,14 +186,28 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
     },
   })
 
+  const needsNewSession = selectedMode !== (session.mode ?? "learn") || selectedAsk !== (session.ask ?? "q")
+
   const handleSave = async () => {
     const parsedMode = modes.safeParse(selectedMode)
     if (!parsedMode.success) return
 
-    await changeSettingsMutation.mutateAsync({
-      id: session.listId,
-      opts: { ask: selectedAsk as "q" | "a" | "both", },
-    })
+    try {
+      await changeSettingsMutation.mutateAsync({
+        id: session.listId,
+        opts: { ask: selectedAsk as "q" | "a" | "both", strict: selectedStrict === "strict" },
+      })
+    } catch {
+      toast.error(t("learn.settings.failedToSave"))
+      return
+    }
+
+    if (!needsNewSession) {
+      setStrict(selectedStrict === "strict")
+      setDialogOpen(false)
+      return
+    }
+
     generateSessionMutation.mutate({
       listId: session.listId,
       mode: parsedMode.data,
@@ -221,6 +237,7 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
           if (open) {
             setSelectedMode(session.mode ?? "learn")
             setSelectedAsk(session.ask ?? "q")
+            setSelectedStrict(strict ? "strict" : "lenient")
           }
           setDialogOpen(open)
         }}>
@@ -273,8 +290,29 @@ function TopBar({ theme, session }: { theme: "light" | "dark"; session: LoaderDa
                   ))}
                 </RadioGroup>
               </div>
+              <div className="flex flex-col gap-3">
+                <p className="text-sm font-medium">{t("learn.settings.checkingLabel")}</p>
+                <RadioGroup value={selectedStrict} onValueChange={setSelectedStrict} className="flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="lenient" id="checking-lenient" className="mt-0.5" />
+                    <Label htmlFor="checking-lenient" className="flex flex-col items-start gap-0.5">
+                      {t("learn.settings.checkingLenient")}
+                      <span className="text-xs font-normal text-muted-foreground">{t("learn.settings.checkingLenientDescription")}</span>
+                    </Label>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="strict" id="checking-strict" className="mt-0.5" />
+                    <Label htmlFor="checking-strict" className="flex flex-col items-start gap-0.5">
+                      {t("learn.settings.checkingStrict")}
+                      <span className="text-xs font-normal text-muted-foreground">{t("learn.settings.checkingStrictDescription")}</span>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
             </div>
-            <p className="text-sm text-muted-foreground">{t("learn.settings.saveWarning")}</p>
+            {needsNewSession && (
+              <p className="text-sm text-muted-foreground">{t("learn.settings.saveWarning")}</p>
+            )}
             <DialogFooter>
               <Button
                 scheme={theme}

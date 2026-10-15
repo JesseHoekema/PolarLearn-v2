@@ -36,7 +36,12 @@
       "askQuestion": "Vraag → Antwoord (bijv. Vraag: {{word}})",
       "askAnswer": "Antwoord → Vraag (bijv. Vraag: {{definition}})",
       "askMixed": "Gemengd (bijv. soms Vraag: {{word}}, soms Vraag: {{definition}})",
-      "failedToSave": "Instellingen konden niet opgeslagen worden."
+      "failedToSave": "Instellingen konden niet opgeslagen worden.",
+      "checkingLabel": "Hoe streng wordt je antwoord nagekeken?",
+      "checkingLenient": "Flexibel",
+      "checkingLenientDescription": "Hoofdletters, spaties, een punt aan het einde en ’ of ' tellen niet mee.",
+      "checkingStrict": "Exact",
+      "checkingStrictDescription": "Je antwoord moet precies kloppen, inclusief hoofdletters, spaties, een punt aan het einde en ’ of '."
     },
     "modes": {
       "learn": "Leren",

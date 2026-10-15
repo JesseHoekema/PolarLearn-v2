@@ -14,153 +14,168 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import { createStore } from 'zustand/vanilla'
-import { createContext, useContext, useState, type ReactNode } from 'react'
-import { useStore } from 'zustand'
-import { z } from 'zod'
-import { answerLogSchema, queueSchema, queueQuestion } from '~/lib/learn'
+import { createStore } from "zustand/vanilla";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { useStore } from "zustand";
+import { z } from "zod";
+import { answerLogSchema, queueSchema, queueQuestion } from "~/lib/learn";
 
-type LearnQueue = z.infer<typeof queueSchema>
-type QueueQuestion = z.infer<typeof queueQuestion>
-type AnswerLogEntry = z.infer<typeof answerLogSchema>[number]
+type LearnQueue = z.infer<typeof queueSchema>;
+type QueueQuestion = z.infer<typeof queueQuestion>;
+type AnswerLogEntry = z.infer<typeof answerLogSchema>[number];
 export interface FeedbackState {
-  isVisible: boolean
-  isCorrect: boolean
-  correctAnswer: string
-  userAnswer: string
-  questionId: string
+  isVisible: boolean;
+  isCorrect: boolean;
+  correctAnswer: string;
+  userAnswer: string;
+  questionId: string;
 }
 
 export interface LearnStoreInitData {
-  listId: string
-  queue: LearnQueue
-  answerLog?: AnswerLogEntry[]
-  isComplete?: boolean
-  timeSpent?: number
+  listId: string;
+  queue: LearnQueue;
+  answerLog?: AnswerLogEntry[];
+  isComplete?: boolean;
+  timeSpent?: number;
+  strict?: boolean;
 }
 
 export interface LearnStoreState {
-  listId: string
-  queue: LearnQueue
-  answerLog: AnswerLogEntry[]
-  isComplete: boolean
-  feedback: FeedbackState | null
-  elapsedMs: number
-  timerStartedAt: number | null
+  listId: string;
+  queue: LearnQueue;
+  answerLog: AnswerLogEntry[];
+  isComplete: boolean;
+  strict: boolean;
+  feedback: FeedbackState | null;
+  elapsedMs: number;
+  timerStartedAt: number | null;
 
-  submitAnswer: (answer: string) => boolean
-  onCorrectAnswer: (questionId: string, answer: string) => void
-  onIncorrectAnswer: (questionId: string, answer: string) => void
-  getCurrentQuestion: () => QueueQuestion | undefined
-  getProgress: () => { completed: number; total: number; percentage: number }
-  dismissFeedback: () => void
-  considerRight: () => void
-  pauseTimer: () => void
-  resumeTimer: () => void
-  getElapsedSeconds: () => number
+  submitAnswer: (answer: string) => boolean;
+  onCorrectAnswer: (questionId: string, answer: string) => void;
+  onIncorrectAnswer: (questionId: string, answer: string) => void;
+  getCurrentQuestion: () => QueueQuestion | undefined;
+  getProgress: () => { completed: number; total: number; percentage: number };
+  dismissFeedback: () => void;
+  considerRight: () => void;
+  setStrict: (strict: boolean) => void;
+  pauseTimer: () => void;
+  resumeTimer: () => void;
+  getElapsedSeconds: () => number;
 }
 
+export const normalizeAnswer = (answer: string, strict: boolean) => {
+  const trimmed = answer.normalize("NFC").trim();
+  if (strict) return trimmed;
 
-const normalizeAnswer = (answer: string) => answer.trim().toLowerCase()
+  return trimmed
+    .toLowerCase()
+    .replace(/[‘’‚‛ʼ`´]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[.!?,;:]+$/, "")
+    .replace(/\s+/g, "");
+};
 
 const expandAnswerPart = (answer: string): string[] => {
-  const optional = answer.match(/\(([^()]*)\)/)
+  const optional = answer.match(/\(([^()]*)\)/);
   if (optional?.index !== undefined) {
-    const before = answer.slice(0, optional.index)
-    const after = answer.slice(optional.index + optional[0].length)
+    const before = answer.slice(0, optional.index);
+    const after = answer.slice(optional.index + optional[0].length);
 
     return [
-      ...expandAnswerPart(`${before}${after}`),
+      ...expandAnswerPart(`${before}${after}`.replace(/\s{2,}/g, " ")),
       ...expandAnswerPart(`${before}${optional[1]}${after}`),
-    ]
+    ];
   }
 
-  const choices = answer.match(/\{([^{}]*)\}/)
+  const choices = answer.match(/\{([^{}]*)\}/);
   if (choices?.index !== undefined) {
-    const before = answer.slice(0, choices.index)
-    const after = answer.slice(choices.index + choices[0].length)
+    const before = answer.slice(0, choices.index);
+    const after = answer.slice(choices.index + choices[0].length);
 
     return choices[1]
-      .split(',')
-      .flatMap((choice) => expandAnswerPart(`${before}${choice}${after}`))
+      .split(",")
+      .flatMap((choice) => expandAnswerPart(`${before}${choice}${after}`));
   }
 
-  return [answer]
-}
+  return [answer];
+};
 
 const expandAnswerSyntax = (answer: string) => [
-  ...new Set([answer, ...answer.split('/').flatMap(expandAnswerPart)]),
-]
+  ...new Set([answer, ...answer.split("/").flatMap(expandAnswerPart)]),
+];
 
 export const createLearnStore = (initData: LearnStoreInitData) => {
-  const initialAnswerLog = initData.answerLog ?? []
-  const initialIsComplete = initData.isComplete ?? initData.queue.length === 0
+  const initialAnswerLog = initData.answerLog ?? [];
+  const initialIsComplete = initData.isComplete ?? initData.queue.length === 0;
 
   return createStore<LearnStoreState>((set, get) => ({
     listId: initData.listId,
     queue: initData.queue,
     answerLog: initialAnswerLog,
     isComplete: initialIsComplete,
+    strict: initData.strict ?? false,
     feedback: null,
     elapsedMs: (initData.timeSpent ?? 0) * 1000,
     timerStartedAt: initialIsComplete ? null : Date.now(),
     getCurrentQuestion: () => {
-      const { queue } = get()
-      return queue[0]
+      const { queue } = get();
+      return queue[0];
     },
 
     submitAnswer: (answer: string) => {
-      const currentQuestion = get().getCurrentQuestion()
+      const currentQuestion = get().getCurrentQuestion();
 
       if (!currentQuestion) {
-        return false
+        return false;
       }
 
+      const { strict } = get();
       const isCorrect = currentQuestion.answer.some((expectedAnswer) =>
-        expandAnswerSyntax(expectedAnswer).some((allowedAnswer) =>
-          normalizeAnswer(allowedAnswer) === normalizeAnswer(answer)
+        expandAnswerSyntax(expectedAnswer).some(
+          (allowedAnswer) =>
+            normalizeAnswer(allowedAnswer, strict) ===
+            normalizeAnswer(answer, strict),
         ),
-      )
+      );
 
       set({
         feedback: {
           isVisible: true,
           isCorrect,
-          correctAnswer: currentQuestion.answer[0] ?? '',
+          correctAnswer: currentQuestion.answer[0] ?? "",
           userAnswer: answer,
           questionId: currentQuestion.id,
         },
-      })
+      });
 
-      return isCorrect
+      return isCorrect;
     },
 
     dismissFeedback: () => {
-      const { feedback } = get()
-      if (!feedback) return
+      const { feedback } = get();
+      if (!feedback) return;
 
       if (feedback.isCorrect) {
-        get().onCorrectAnswer(feedback.questionId, feedback.userAnswer)
+        get().onCorrectAnswer(feedback.questionId, feedback.userAnswer);
       } else {
-        get().onIncorrectAnswer(feedback.questionId, feedback.userAnswer)
+        get().onIncorrectAnswer(feedback.questionId, feedback.userAnswer);
       }
 
-      set({ feedback: null })
+      set({ feedback: null });
     },
 
     considerRight: () => {
-      const { feedback } = get()
-      if (!feedback) return
+      const { feedback } = get();
+      if (!feedback) return;
 
-      get().onCorrectAnswer(feedback.questionId, feedback.userAnswer)
-      set({ feedback: null })
+      get().onCorrectAnswer(feedback.questionId, feedback.userAnswer);
+      set({ feedback: null });
     },
-
 
     onCorrectAnswer: (questionId: string, answer: string) => {
       set((state) => {
-        const currentQuestion = state.queue.find((q) => q.id === questionId)
-        const newQueue = state.queue.filter((q) => q.id !== questionId)
+        const currentQuestion = state.queue.find((q) => q.id === questionId);
+        const newQueue = state.queue.filter((q) => q.id !== questionId);
         const newAnswerLog: AnswerLogEntry[] = [
           ...state.answerLog,
           {
@@ -172,8 +187,8 @@ export const createLearnStore = (initData: LearnStoreInitData) => {
             correctAnswer: currentQuestion?.answer[0],
             questionType: currentQuestion?.type,
           },
-        ]
-        const isComplete = newQueue.length === 0
+        ];
+        const isComplete = newQueue.length === 0;
 
         if (isComplete && state.timerStartedAt !== null) {
           return {
@@ -182,27 +197,27 @@ export const createLearnStore = (initData: LearnStoreInitData) => {
             isComplete,
             elapsedMs: state.elapsedMs + (Date.now() - state.timerStartedAt),
             timerStartedAt: null,
-          }
+          };
         }
 
         return {
           queue: newQueue,
           answerLog: newAnswerLog,
           isComplete,
-        }
-      })
+        };
+      });
     },
 
     onIncorrectAnswer: (questionId: string, answer: string) => {
       set((state) => {
-        const questionIndex = state.queue.findIndex((q) => q.id === questionId)
-        if (questionIndex === -1) return state
+        const questionIndex = state.queue.findIndex((q) => q.id === questionId);
+        if (questionIndex === -1) return state;
 
-        const newQueue = state.queue.filter((q) => q.id !== questionId)
+        const newQueue = state.queue.filter((q) => q.id !== questionId);
 
-        const currentQuestion = state.queue[questionIndex]
-        const randomIndex = Math.floor(Math.random() * (newQueue.length + 1))
-        newQueue.splice(randomIndex, 0, currentQuestion)
+        const currentQuestion = state.queue[questionIndex];
+        const randomIndex = Math.floor(Math.random() * (newQueue.length + 1));
+        newQueue.splice(randomIndex, 0, currentQuestion);
 
         const newAnswerLog: AnswerLogEntry[] = [
           ...state.answerLog,
@@ -215,86 +230,93 @@ export const createLearnStore = (initData: LearnStoreInitData) => {
             correctAnswer: currentQuestion.answer[0],
             questionType: currentQuestion.type,
           },
-        ]
+        ];
 
         return {
           queue: newQueue,
           answerLog: newAnswerLog,
-        }
-      })
+        };
+      });
+    },
+
+    setStrict: (strict: boolean) => {
+      set({ strict });
     },
 
     pauseTimer: () => {
-      const { timerStartedAt, elapsedMs } = get()
-      if (timerStartedAt === null) return
+      const { timerStartedAt, elapsedMs } = get();
+      if (timerStartedAt === null) return;
 
       set({
         elapsedMs: elapsedMs + (Date.now() - timerStartedAt),
         timerStartedAt: null,
-      })
+      });
     },
 
     resumeTimer: () => {
-      const { timerStartedAt, isComplete } = get()
-      if (timerStartedAt !== null || isComplete) return
+      const { timerStartedAt, isComplete } = get();
+      if (timerStartedAt !== null || isComplete) return;
 
-      set({ timerStartedAt: Date.now() })
+      set({ timerStartedAt: Date.now() });
     },
 
     getElapsedSeconds: () => {
-      const { timerStartedAt, elapsedMs } = get()
-      const runningMs = timerStartedAt === null ? 0 : Date.now() - timerStartedAt
+      const { timerStartedAt, elapsedMs } = get();
+      const runningMs =
+        timerStartedAt === null ? 0 : Date.now() - timerStartedAt;
 
-      return Math.floor((elapsedMs + runningMs) / 1000)
+      return Math.floor((elapsedMs + runningMs) / 1000);
     },
 
     getProgress: () => {
-      const state = get()
-      const completed = state.answerLog.filter((entry) => entry.isCorrect).length
-      const total = state.queue.length + completed
-      const percentage = total > 0 ? Math.round((completed / total) * 100) : 0
+      const state = get();
+      const completed = state.answerLog.filter(
+        (entry) => entry.isCorrect,
+      ).length;
+      const total = state.queue.length + completed;
+      const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
       return {
         completed,
         total,
         percentage,
-      }
+      };
     },
-  }))
-}
+  }));
+};
 
-type LearnStoreApi = ReturnType<typeof createLearnStore>
+type LearnStoreApi = ReturnType<typeof createLearnStore>;
 
-const LearnStoreContext = createContext<LearnStoreApi | null>(null)
+const LearnStoreContext = createContext<LearnStoreApi | null>(null);
 
 export function LearnStoreProvider({
   children,
   initialData,
 }: {
-  children: ReactNode
-  initialData: LearnStoreInitData
+  children: ReactNode;
+  initialData: LearnStoreInitData;
 }) {
-  const [store] = useState(() => createLearnStore(initialData))
+  const [store] = useState(() => createLearnStore(initialData));
 
   return (
     <LearnStoreContext.Provider value={store}>
       {children}
     </LearnStoreContext.Provider>
-  )
+  );
 }
 
-const selectLearnStoreState = (state: LearnStoreState) => state
+const selectLearnStoreState = (state: LearnStoreState) => state;
 
-export function useLearnStore(): LearnStoreState
-export function useLearnStore<T>(selector: (state: LearnStoreState) => T): T
+export function useLearnStore(): LearnStoreState;
+export function useLearnStore<T>(selector: (state: LearnStoreState) => T): T;
 export function useLearnStore<T>(selector?: (state: LearnStoreState) => T) {
-  const store = useContext(LearnStoreContext)
+  const store = useContext(LearnStoreContext);
 
   if (!store) {
-    throw new Error('useLearnStore must be used within LearnStoreProvider')
+    throw new Error("useLearnStore must be used within LearnStoreProvider");
   }
 
-  const selectedState = selector ?? selectLearnStoreState
+  const selectedState = selector ?? selectLearnStoreState;
 
-  return useStore(store, selectedState as (state: LearnStoreState) => T)
+  return useStore(store, selectedState as (state: LearnStoreState) => T);
 }

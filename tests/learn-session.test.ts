@@ -54,3 +54,36 @@ describe("learn session timer", () => {
     expect(store.getState().timerStartedAt).toBeNull();
   });
 });
+
+describe("answer checking", () => {
+  const check = (expected: string, answer: string, strict: boolean) => {
+    const store = createLearnStore({
+      listId: "list",
+      queue: [{ id: "q1", type: "test" as const, question: "vraag", answer: [expected] }],
+      strict,
+    });
+
+    return store.getState().submitAnswer(answer);
+  };
+
+  it("ignores caps, spaces, trailing punctuation and quote style when lenient", () => {
+    expect(check("It's a dog.", "its a dog", false)).toBe(false);
+    expect(check("It’s a dog.", "it's a dog", false)).toBe(true);
+    expect(check("ice cream", "Icecream!", false)).toBe(true);
+    expect(check("hallo", "  hallo  ", false)).toBe(true);
+  });
+
+  it("requires an exact match when strict", () => {
+    expect(check("It’s a dog.", "It’s a dog.", true)).toBe(true);
+    expect(check("It’s a dog.", "It's a dog.", true)).toBe(false);
+    expect(check("It’s a dog.", "it’s a dog.", true)).toBe(false);
+    expect(check("It’s a dog.", "It’s a dog", true)).toBe(false);
+    expect(check("ice cream", "icecream", true)).toBe(false);
+  });
+
+  it("still supports answer syntax in both modes", () => {
+    expect(check("de (grote) hond", "De hond", false)).toBe(true);
+    expect(check("de (grote) hond", "de grote hond", true)).toBe(true);
+    expect(check("de (grote) hond", "de hond", true)).toBe(true);
+  });
+});

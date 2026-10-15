@@ -129,6 +129,7 @@ export const learningRouter = createTRPCRouter({
       });
       const prefs = (userPrefs?.listPrefs as listPrefs) ?? {};
       const ask = prefs[session.listId]?.ask ?? "q";
+      const strict = prefs[session.listId]?.strict ?? false;
 
       return {
         id: session.id,
@@ -139,6 +140,7 @@ export const learningRouter = createTRPCRouter({
         timeSpent: session.timeSpent,
         mode: session.mode as z.infer<typeof modes>,
         ask,
+        strict,
         commit: session.commit,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
@@ -308,6 +310,7 @@ export const learningRouter = createTRPCRouter({
         id: z.string(), // session id
         opts: z.object({
           ask: z.enum(["q", "a", "both"]),
+          strict: z.boolean().optional(),
         }),
       }),
     )

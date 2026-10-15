@@ -188,6 +188,7 @@ export const listPrefsSchema = z.record(
   z.string(),
   z.object({
     ask: z.enum(["q", "a", "both"]),
+    strict: z.boolean().optional(),
   }),
 );
 
